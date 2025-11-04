@@ -440,7 +440,9 @@ func (sm *SubscriptionManager) cleanupSiteData(siteHost string) {
 	if exists && sub.ChannelID != "" {
 		sm.mutex.Lock()
 		delete(sm.pending, sub.ChannelID)
-		delete(sm.Registered, sub.ChannelID)
+		if sub.VAPIDPublic == "" || sub.VAPIDPrivate == "" || sub.Endpoint == "" {
+			delete(sm.Registered, sub.ChannelID)
+		}
 		sm.mutex.Unlock()
 	}
 }
