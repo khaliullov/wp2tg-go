@@ -34,7 +34,9 @@ func (h *SubscriptionHandler) HandleApiSubscriptions(w http.ResponseWriter, r *h
 	switch r.Method {
 	case http.MethodPost:
 		var req struct {
-			URL string `json:"url"`
+			URL                   string `json:"url"`
+			TelegramChatID        int64  `json:"telegram_chat_id"`
+			AutoCloseDelaySeconds *int   `json:"auto_close_delay_seconds"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&req)
 		host := strings.TrimPrefix(req.URL, "https://")
@@ -46,10 +48,19 @@ func (h *SubscriptionHandler) HandleApiSubscriptions(w http.ResponseWriter, r *h
 			return
 		}
 		h.ConfigMutex.Lock()
-		if _, ok := h.Config.Subscriptions[host]; !ok {
-			h.Config.Subscriptions[host] = domain.SubscriptionDetails{}
-			_ = h.SubManager.SaveConfigFunc()
+		details := h.Config.Subscriptions[host]
+		if req.TelegramChatID != 0 && req.TelegramChatID != h.Config.Main.TelegramChatID {
+			details.TelegramChatID = req.TelegramChatID
 		}
+
+		if req.AutoCloseDelaySeconds != nil {
+			details.AutoCloseDelaySeconds = req.AutoCloseDelaySeconds
+		} else if details.AutoCloseDelaySeconds == nil {
+			defaultDelay := 5
+			details.AutoCloseDelaySeconds = &defaultDelay
+		}
+		h.Config.Subscriptions[host] = details
+		_ = h.SubManager.SaveConfigFunc()
 		h.ConfigMutex.Unlock()
 
 		if err := h.SubManager.RegisterNewSite(host); err != nil {
@@ -80,12 +91,32 @@ func (h *SubscriptionHandler) HandleApiSubscriptions(w http.ResponseWriter, r *h
 	}
 }
 
+func (h *SubscriptionHandler) HandleFreeSubscription(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	host := strings.TrimPrefix(r.URL.Path, "/api/subscriptions/free/")
+	host = strings.Trim(host, "/")
+	if host == "" {
+		http.Error(w, "missing host", http.StatusBadRequest)
+		return
+	}
+	if err := h.SubManager.FreeSite(host); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
 func StartWebServer(handler *SubscriptionHandler) {
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		_, _ = w.Write([]byte(indexHTML))
+		html := strings.ReplaceAll(indexHTML, "__TELEGRAM_CHAT_ID__", fmt.Sprintf("%d", handler.Config.Main.TelegramChatID))
+		_, _ = w.Write([]byte(html))
 	})
 	http.HandleFunc("/api/subscriptions/", handler.HandleApiSubscriptions)
+	http.HandleFunc("/api/subscriptions/free/", handler.HandleFreeSubscription)
 
 	addr := fmt.Sprintf(":%d", handler.Config.Main.ListenPort)
 	log.Printf("Web UI listening on http://localhost%s", addr)

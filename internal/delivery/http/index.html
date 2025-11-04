@@ -8,13 +8,15 @@
         body { font-family: sans-serif; margin: 20px; background-color: #f4f4f4; color: #333; }
         .container { max-width: 800px; margin: auto; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
         h1 { color: #0056b3; }
-        .add-form { display: flex; margin-bottom: 20px; }
-        .add-form input[type="text"] { flex-grow: 1; padding: 10px; border: 1px solid #ddd; border-radius: 4px 0 0 4px; }
-        .add-form button { padding: 10px 15px; background-color: #28a745; color: white; border: none; border-radius: 0 4px 4px 0; cursor: pointer; }
+        .add-form { display: flex; flex-direction: column; margin-bottom: 20px; }
+        .add-form input { padding: 10px; border: 1px solid #ddd; border-radius: 4px; margin-bottom: 10px; }
+        .add-form button { padding: 10px 15px; background-color: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer; }
         .add-form button:hover { background-color: #218838; }
         .subscription-item { background: #e9ecef; padding: 10px; margin-bottom: 10px; border-radius: 4px; display: flex; justify-content: space-between; align-items: center; }
         .subscription-item button { background-color: #dc3545; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; }
         .subscription-item button:hover { background-color: #c82333; }
+        .subscription-item .free-button { background-color: #007bff; }
+        .subscription-item .free-button:hover { background-color: #0069d9; }
         .error { color: red; margin-top: 10px; }
     </style>
 </head>
@@ -23,7 +25,12 @@
     <h1>WP2TG Subscriptions</h1>
 
     <div class="add-form">
+        domain:
         <input type="text" id="newSubscriptionUrl" placeholder="Enter website URL (e.g., example.com)">
+        Telegram chat ID:
+        <input type="text" id="telegramChatId" placeholder="Telegram Chat ID (optional)" value="__TELEGRAM_CHAT_ID__">
+        Auto-close browser delay in seconds after keys was hooked (0 to disable):
+        <input type="number" id="autoCloseDelay" placeholder="Auto-close delay in seconds (e.g., 5)" value="5">
         <button onclick="addSubscription()">Add Subscription</button>
     </div>
 
@@ -59,9 +66,21 @@
                 const sub = subscriptions[siteHost];
                 const div = document.createElement('div');
                 div.className = 'subscription-item';
+
+                let buttons = `<button onclick="deleteSubscription('${siteHost}')">Delete</button>`;
+                if (sub.auto_close_delay_seconds !== null && sub.auto_close_delay_seconds === 0) {
+                    buttons += ` <button class="free-button" onclick="freeSubscription('${siteHost}', event)">Free</button>`;
+                }
+
+                if (sub.telegram_chat_id === undefined) {
+                    sub.telegram_chat_id = __TELEGRAM_CHAT_ID__;
+                }
                 div.innerHTML = `
-                        <span>${siteHost}</span>
-                        <button onclick="deleteSubscription('${siteHost}')">Delete</button>
+                        <span>
+                            ${siteHost} <br>
+                            <small>Chat ID: ${sub.telegram_chat_id}</small>
+                        </span>
+                        <div>${buttons}</div>
                     `;
                 subscriptionsList.appendChild(div);
             }
@@ -73,30 +92,44 @@
     }
 
     async function addSubscription() {
-        const input = document.getElementById('newSubscriptionUrl');
-        const url = input.value.trim();
+        const urlInput = document.getElementById('newSubscriptionUrl');
+        const chatIdInput = document.getElementById('telegramChatId');
+        const delayInput = document.getElementById('autoCloseDelay');
         const errorMessage = document.getElementById('errorMessage');
         errorMessage.textContent = '';
 
+        const url = urlInput.value.trim();
         if (!url) {
             errorMessage.textContent = 'URL cannot be empty.';
             return;
+        }
+
+        const payload = { url: url };
+        const chatId = parseInt(chatIdInput.value.trim(), 10);
+        if (!isNaN(chatId)) {
+            payload.telegram_chat_id = chatId;
+        }
+
+        const delay = parseInt(delayInput.value.trim(), 10);
+        if (!isNaN(delay)) {
+            payload.auto_close_delay_seconds = delay;
         }
 
         try {
             const response = await fetch('/api/subscriptions/', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ url: url })
+                body: JSON.stringify(payload)
             });
 
             if (response.status === 409) {
                 errorMessage.textContent = 'Subscription for this URL already exists.';
             } else if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
+                const errorText = await response.text();
+                throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
             }
 
-            input.value = ''; // Clear input
+            urlInput.value = '';
             loadSubscriptions();
         } catch (error) {
             console.error('Error adding subscription:', error);
@@ -128,7 +161,28 @@
         }
     }
 
-    // Load subscriptions when the page loads
+    async function freeSubscription(siteHost, event) {
+        const button = event.target;
+        const errorMessage = document.getElementById('errorMessage');
+        errorMessage.textContent = '';
+
+        try {
+            const response = await fetch(`/api/subscriptions/free/${siteHost}`, {
+                method: 'POST'
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            alert(`Browser for ${siteHost} has been closed.`);
+            button.style.display = 'none';
+        } catch (error) {
+            console.error('Error freeing subscription:', error);
+            errorMessage.textContent = 'Failed to free subscription: ' + error.message;
+        }
+    }
+
     window.onload = loadSubscriptions;
 </script>
 </body>

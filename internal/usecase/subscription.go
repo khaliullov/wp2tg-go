@@ -26,7 +26,7 @@ import (
 
 type BrowserLauncher interface {
 	LaunchForSite(sm *SubscriptionManager, siteURL string)
-	Cleanup(siteURL string)
+	Cleanup(sm *SubscriptionManager, siteURL string)
 }
 
 type SubscriptionManager struct {
@@ -182,7 +182,9 @@ func (sm *SubscriptionManager) handleNotification(notif domain.NotificationMessa
 	siteHost, ok := sm.Registered[notif.ChannelID]
 	sm.mutex.Unlock()
 	if !ok {
-		log.Printf("[WSS-Client] notification for unknown channel: %s", notif.ChannelID)
+		log.Printf("[WSS-Client] notification for unknown channel: %s. Unsubscribing", notif.ChannelID)
+		sm.ack(notif.ChannelID, notif.Version)
+		sm.unregisterSite("<unknown>", notif.ChannelID)
 		return
 	}
 
@@ -298,9 +300,13 @@ func (sm *SubscriptionManager) handleNotification(notif domain.NotificationMessa
 		_, _ = sm.TelegramBot.Send(&telebot.Chat{ID: tcid}, msg, telebot.ModeMarkdown)
 	}
 
+	sm.ack(notif.ChannelID, notif.Version)
+}
+
+func (sm *SubscriptionManager) ack(channelID, version string) {
 	ack := domain.AckMessage{
 		MessageType: "ack",
-		Updates:     []domain.AckUpdate{{ChannelID: notif.ChannelID, Version: notif.Version}},
+		Updates:     []domain.AckUpdate{{ChannelID: channelID, Version: version}},
 	}
 	sm.mutex.Lock()
 	if sm.conn != nil {
@@ -367,34 +373,76 @@ func (sm *SubscriptionManager) RegisterWithKey(siteHost, realVAPIDPub string) er
 	return nil
 }
 
+func (sm *SubscriptionManager) unregisterSite(siteHost string, channelID string) {
+	msg := map[string]interface{}{
+		"messageType": string(domain.MessageTypeUnregister),
+		"channelID":   channelID,
+	}
+	sm.mutex.Lock()
+	if sm.conn != nil {
+		if err := sm.conn.WriteJSON(msg); err != nil {
+			log.Printf("[WSS-Client %s] Unregister send failed: %v", siteHost, err)
+		}
+	}
+	sm.mutex.Unlock()
+}
+
 func (sm *SubscriptionManager) UnregisterSite(siteHost string) error {
 	sm.ConfigMutex.RLock()
 	sub, exists := sm.Config.Subscriptions[siteHost]
 	sm.ConfigMutex.RUnlock()
 
 	if exists && sub.ChannelID != "" {
-		msg := map[string]interface{}{
-			"messageType": string(domain.MessageTypeUnregister),
-			"channelID":   sub.ChannelID,
-		}
-		sm.mutex.Lock()
-		if sm.conn != nil {
-			if err := sm.conn.WriteJSON(msg); err != nil {
-				log.Printf("[WSS-Client %s] Unregister send failed: %v", siteHost, err)
-			}
-		}
-		sm.mutex.Unlock()
+		sm.unregisterSite(siteHost, sub.ChannelID)
 	}
+
+	sm.cleanupSiteData(siteHost)
 
 	sm.ConfigMutex.Lock()
 	delete(sm.Config.Subscriptions, siteHost)
 	_ = sm.SaveConfigFunc()
 	sm.ConfigMutex.Unlock()
 
-	sm.BrowserLauncher.Cleanup(siteHost)
+	sm.BrowserLauncher.Cleanup(sm, siteHost)
 
 	log.Printf("[WSS-Client %s] Unregister processed and cleanup triggered", siteHost)
 	return nil
+}
+
+func (sm *SubscriptionManager) FreeSite(siteHost string) error {
+	log.Printf("[WSS-Client %s] Freeing site and cleaning up browser", siteHost)
+	sm.cleanupSiteData(siteHost)
+	sm.BrowserLauncher.Cleanup(sm, siteHost)
+	return nil
+}
+
+func (sm *SubscriptionManager) cleanupSiteData(siteHost string) {
+	var ch chan string
+	sm.PendingMutex.Lock()
+	if c, ok := sm.PendingRegister[siteHost]; ok {
+		delete(sm.PendingRegister, siteHost)
+		ch = c
+	}
+	sm.PendingMutex.Unlock()
+
+	if ch != nil {
+		select {
+		case ch <- "": // Signal cancellation
+		default:
+			log.Printf("[WSS-Client %s] cleanupSiteData: could not send cancellation signal to pending registration.", siteHost)
+		}
+	}
+
+	sm.ConfigMutex.RLock()
+	sub, exists := sm.Config.Subscriptions[siteHost]
+	sm.ConfigMutex.RUnlock()
+
+	if exists && sub.ChannelID != "" {
+		sm.mutex.Lock()
+		delete(sm.pending, sub.ChannelID)
+		delete(sm.Registered, sub.ChannelID)
+		sm.mutex.Unlock()
+	}
 }
 
 func (sm *SubscriptionManager) dial() error {

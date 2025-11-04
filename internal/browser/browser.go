@@ -72,11 +72,12 @@ func (bl *PlaywrightBrowserLauncher) LaunchForSite(sm *usecase.SubscriptionManag
 	}()
 }
 
-func (bl *PlaywrightBrowserLauncher) Cleanup(siteURL string) {
+func (bl *PlaywrightBrowserLauncher) Cleanup(sm *usecase.SubscriptionManager, siteURL string) {
 	bl.ContextsMutex.Lock()
 	ctx, exists := bl.Contexts[siteURL]
 	if exists {
 		delete(bl.Contexts, siteURL)
+		delete(bl.Contexts, siteURL+"_manifest_redirected")
 	}
 	bl.ContextsMutex.Unlock()
 
@@ -98,6 +99,14 @@ func (bl *PlaywrightBrowserLauncher) Cleanup(siteURL string) {
 			}
 			log.Printf("[Cleanup %s] Cleanup completed", siteURL)
 		}()
+	}
+
+	sm.ConfigMutex.Lock()
+	defer sm.ConfigMutex.Unlock()
+	if sub, ok := sm.Config.Subscriptions[siteURL]; ok {
+		sub.AutoCloseDelaySeconds = nil
+		sm.Config.Subscriptions[siteURL] = sub
+		_ = sm.SaveConfigFunc()
 	}
 }
 
@@ -327,16 +336,19 @@ func (bl *PlaywrightBrowserLauncher) handleCaptureVapidRequest(sm *usecase.Subsc
 	ctx, cancel := context.WithCancel(context.Background())
 	browserContext.CancelCleanup = cancel
 
-	go func() {
-		select {
-		case <-time.After(5 * time.Second):
-		case <-ctx.Done():
-			log.Printf("[Cleanup %s] Auto-cleanup cancelled", siteURL)
-			return
-		}
+	delay := sub.AutoCloseDelaySeconds
+	if delay != nil && *delay > 0 {
+		go func() {
+			select {
+			case <-time.After(time.Duration(*delay) * time.Second):
+			case <-ctx.Done():
+				log.Printf("[Cleanup %s] Auto-cleanup cancelled", siteURL)
+				return
+			}
 
-		bl.Cleanup(siteURL)
-	}()
+			bl.Cleanup(sm, siteURL)
+		}()
+	}
 }
 
 func resolveURL(base, ref string) string {

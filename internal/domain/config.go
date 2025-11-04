@@ -5,14 +5,14 @@ const (
 )
 
 type SubscriptionDetails struct {
-	Endpoint       string `yaml:"endpoint,omitempty"`
-	P256DH         string `yaml:"p256dh,omitempty"`
-	Auth           string `yaml:"auth,omitempty"`
-	VAPIDPublic    string `yaml:"vapid_public,omitempty"` // real server's key
-	VAPIDPrivate   string `yaml:"vapid_private,omitempty"`
-	ChannelID      string `yaml:"channel_id,omitempty"`
-	CapturedVAPID  bool   `yaml:"captured_vapid,omitempty"` // optional flag
-	TelegramChatID int64  `yaml:"telegram_chat_id,omitempty"`
+	Endpoint              string `yaml:"endpoint,omitempty" json:"-"`
+	P256DH                string `yaml:"p256dh,omitempty" json:"-"`
+	Auth                  string `yaml:"auth,omitempty" json:"-"`
+	VAPIDPublic           string `yaml:"vapid_public,omitempty" json:"-"` // real server's key
+	VAPIDPrivate          string `yaml:"vapid_private,omitempty" json:"-"`
+	ChannelID             string `yaml:"channel_id,omitempty" json:"-"`
+	TelegramChatID        int64  `yaml:"telegram_chat_id,omitempty" json:"telegram_chat_id,omitempty"`
+	AutoCloseDelaySeconds *int   `yaml:"auto_close_delay_seconds,omitempty" json:"auto_close_delay_seconds"`
 }
 
 type Config struct {
