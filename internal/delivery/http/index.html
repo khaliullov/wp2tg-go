@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WP2TG Subscriptions</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; background-color: #f4f4f4; color: #333; }
+        .container { max-width: 800px; margin: auto; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        h1 { color: #0056b3; }
+        .add-form { display: flex; margin-bottom: 20px; }
+        .add-form input[type="text"] { flex-grow: 1; padding: 10px; border: 1px solid #ddd; border-radius: 4px 0 0 4px; }
+        .add-form button { padding: 10px 15px; background-color: #28a745; color: white; border: none; border-radius: 0 4px 4px 0; cursor: pointer; }
+        .add-form button:hover { background-color: #218838; }
+        .subscription-item { background: #e9ecef; padding: 10px; margin-bottom: 10px; border-radius: 4px; display: flex; justify-content: space-between; align-items: center; }
+        .subscription-item button { background-color: #dc3545; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; }
+        .subscription-item button:hover { background-color: #c82333; }
+        .error { color: red; margin-top: 10px; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>WP2TG Subscriptions</h1>
+
+    <div class="add-form">
+        <input type="text" id="newSubscriptionUrl" placeholder="Enter website URL (e.g., example.com)">
+        <button onclick="addSubscription()">Add Subscription</button>
+    </div>
+
+    <h2>Current Subscriptions</h2>
+    <div id="subscriptionsList">
+        <!-- Subscriptions will be loaded here by JavaScript -->
+        <p>Loading subscriptions...</p>
+    </div>
+    <div id="errorMessage" class="error"></div>
+</div>
+
+<script>
+    async function loadSubscriptions() {
+        const subscriptionsList = document.getElementById('subscriptionsList');
+        const errorMessage = document.getElementById('errorMessage');
+        subscriptionsList.innerHTML = '<p>Loading subscriptions...</p>';
+        errorMessage.textContent = '';
+
+        try {
+            const response = await fetch('/api/subscriptions/');
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            const subscriptions = await response.json();
+
+            subscriptionsList.innerHTML = '';
+            if (Object.keys(subscriptions).length === 0) {
+                subscriptionsList.innerHTML = '<p>No subscriptions yet. Add one above!</p>';
+                return;
+            }
+
+            for (const siteHost in subscriptions) {
+                const sub = subscriptions[siteHost];
+                const div = document.createElement('div');
+                div.className = 'subscription-item';
+                div.innerHTML = `
+                        <span>${siteHost}</span>
+                        <button onclick="deleteSubscription('${siteHost}')">Delete</button>
+                    `;
+                subscriptionsList.appendChild(div);
+            }
+        } catch (error) {
+            console.error('Error loading subscriptions:', error);
+            errorMessage.textContent = 'Failed to load subscriptions: ' + error.message;
+            subscriptionsList.innerHTML = '<p>Could not load subscriptions.</p>';
+        }
+    }
+
+    async function addSubscription() {
+        const input = document.getElementById('newSubscriptionUrl');
+        const url = input.value.trim();
+        const errorMessage = document.getElementById('errorMessage');
+        errorMessage.textContent = '';
+
+        if (!url) {
+            errorMessage.textContent = 'URL cannot be empty.';
+            return;
+        }
+
+        try {
+            const response = await fetch('/api/subscriptions/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url: url })
+            });
+
+            if (response.status === 409) {
+                errorMessage.textContent = 'Subscription for this URL already exists.';
+            } else if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            input.value = ''; // Clear input
+            loadSubscriptions();
+        } catch (error) {
+            console.error('Error adding subscription:', error);
+            errorMessage.textContent = 'Failed to add subscription: ' + error.message;
+        }
+    }
+
+    async function deleteSubscription(siteHost) {
+        const errorMessage = document.getElementById('errorMessage');
+        errorMessage.textContent = '';
+
+        if (!confirm(`Are you sure you want to delete subscription for ${siteHost}?`)) {
+            return;
+        }
+
+        try {
+            const response = await fetch(`/api/subscriptions/${siteHost}`, {
+                method: 'DELETE'
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            loadSubscriptions();
+        } catch (error) {
+            console.error('Error deleting subscription:', error);
+            errorMessage.textContent = 'Failed to delete subscription: ' + error.message;
+        }
+    }
+
+    // Load subscriptions when the page loads
+    window.onload = loadSubscriptions;
+</script>
+</body>
+</html>
