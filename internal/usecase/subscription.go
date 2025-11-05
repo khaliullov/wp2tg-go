@@ -215,13 +215,35 @@ func (sm *SubscriptionManager) handleNotification(notif domain.NotificationMessa
 		if decryptedOK && decrypted != "" && decrypted[0] == '{' {
 			var fcmPayload struct {
 				Notification struct {
-					Title string `json:"title"`
-					Body  string `json:"body"`
-				} `json:"notification"`
+					Title string `json:"title,omitempty"`
+					Body  string `json:"body,omitempty"`
+				} `json:"notification,omitempty"`
+				Data struct {
+					Title string `json:"title,omitempty"`
+					Body  string `json:"body,omitempty"`
+				} `json:"data,omitempty"`
+				Title string `json:"title,omitempty"`
+				Body  string `json:"body,omitempty"`
 			}
 			if json.Unmarshal([]byte(decrypted), &fcmPayload) == nil {
-				title = fcmPayload.Notification.Title
-				body = fcmPayload.Notification.Body
+				if fcmPayload.Notification.Title != "" {
+					title = fcmPayload.Notification.Title
+				}
+				if fcmPayload.Data.Title != "" {
+					title = fcmPayload.Data.Title
+				}
+				if fcmPayload.Title != "" {
+					title = fcmPayload.Title
+				}
+				if fcmPayload.Notification.Body != "" {
+					body = fcmPayload.Notification.Body
+				}
+				if fcmPayload.Data.Body != "" {
+					body = fcmPayload.Data.Body
+				}
+				if fcmPayload.Body != "" {
+					body = fcmPayload.Body
+				}
 			}
 		}
 		msg := fmt.Sprintf("🔔 *%s*\n*%s*\n%s", siteHost, title, body)
