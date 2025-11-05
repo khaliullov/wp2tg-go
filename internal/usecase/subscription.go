@@ -66,74 +66,6 @@ func NewSubscriptionManager(
 	}
 }
 
-func (sm *SubscriptionManager) readLoop() {
-	defer func() {
-		sm.mutex.Lock()
-		if sm.conn != nil {
-			_ = sm.conn.Close()
-			sm.conn = nil
-		}
-		sm.mutex.Unlock()
-	}()
-
-	for {
-		select {
-		case <-sm.stopChan:
-			return
-		default:
-			if sm.conn == nil {
-				return
-			}
-			_, msgBytes, err := sm.conn.ReadMessage()
-			if err != nil {
-				log.Printf("[WSS-Client] read error: %v", err)
-				return
-			}
-
-			var mt struct {
-				MessageType string `json:"messageType"`
-				Uaid        string `json:"uaid,omitempty"`
-			}
-			_ = json.Unmarshal(msgBytes, &mt)
-			log.Printf("[WSS-Client] Mozilla ->: %s", string(msgBytes))
-
-			var generic map[string]interface{}
-			if err := json.Unmarshal(msgBytes, &generic); err == nil {
-				if mt.MessageType == "hello" {
-					if uaidRaw, ok := generic["uaid"].(string); ok && uaidRaw != "" {
-						sm.ConfigMutex.Lock()
-						if sm.Config.Main.UAID != uaidRaw {
-							sm.Config.Main.UAID = uaidRaw
-							_ = sm.SaveConfigFunc()
-							log.Printf("[WSS-Client] Saved UAID to config.yaml: %s", uaidRaw)
-						}
-						sm.ConfigMutex.Unlock()
-					}
-				}
-			}
-
-			var typeCheck struct {
-				MessageType string `json:"messageType"`
-			}
-			if err := json.Unmarshal(msgBytes, &typeCheck); err != nil {
-				continue
-			}
-			switch typeCheck.MessageType {
-			case string(domain.MessageTypeRegister):
-				var rr domain.RegisterResponse
-				if err := json.Unmarshal(msgBytes, &rr); err == nil {
-					sm.handleRegisterResponse(rr)
-				}
-			case "notification":
-				var nm domain.NotificationMessage
-				if err := json.Unmarshal(msgBytes, &nm); err == nil {
-					sm.handleNotification(nm)
-				}
-			}
-		}
-	}
-}
-
 func (sm *SubscriptionManager) handleRegisterResponse(resp domain.RegisterResponse) {
 	sm.mutex.Lock()
 	siteHost, ok := sm.pending[resp.ChannelID]
@@ -453,13 +385,26 @@ func (sm *SubscriptionManager) dial() error {
 	if err != nil {
 		return fmt.Errorf("dial push service: %w", err)
 	}
-	conn.SetPongHandler(func(appData string) error { return nil })
+	conn.SetPongHandler(func(appData string) error {
+		log.Printf("[WSS-Client] ← Pong received (appData: %q)", appData)
+		return nil
+	})
+	conn.SetPingHandler(func(appData string) error {
+		log.Printf("[WSS-Client] ← Ping received (appData: %q)", appData)
+		err := conn.WriteMessage(websocket.PongMessage, []byte(appData))
+		if err != nil {
+			log.Printf("[WSS-Client] → Failed to send Pong: %v", err)
+		} else {
+			log.Printf("[WSS-Client] → Pong sent (appData: %q)", appData)
+		}
+		return nil
+	})
 	sm.conn = conn
 	return nil
 }
 
 func (sm *SubscriptionManager) keepAliveLoop() {
-	ticker := time.NewTicker(10 * time.Minute)
+	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
 
 	for {
@@ -470,11 +415,13 @@ func (sm *SubscriptionManager) keepAliveLoop() {
 				sm.mutex.Unlock()
 				return
 			}
-			keepAliveMsg := map[string]interface{}{}
-			err := sm.conn.WriteJSON(keepAliveMsg)
+			err := sm.conn.WriteMessage(websocket.PingMessage, nil)
 			sm.mutex.Unlock()
 			if err != nil {
+				log.Printf("[WSS-Client] keep-alive ping failed: %v", err)
 				return
+			} else {
+				log.Printf("[WSS-Client] → sent keep-alive ping")
 			}
 		case <-sm.stopChan:
 			return
@@ -567,6 +514,7 @@ func (sm *SubscriptionManager) readLoopOnce() {
 		}
 		_, msgBytes, err := sm.conn.ReadMessage()
 		if err != nil {
+			log.Printf("[WSS-Client] read error: %v", err)
 			return
 		}
 

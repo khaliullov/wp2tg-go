@@ -101,9 +101,9 @@
                     applicationServerKey: options?.applicationServerKey || null
                 },
                 getKey: function(name) {
-                    console.log('[wp2tg] fake subscription getKey:', name);
                     if (name === 'p256dh' || name === 'auth') {
                         const b64url = fakeSub.keys[name];
+                        console.log('[wp2tg] fake subscription getKey:', name, b64url);
                         if (!b64url) {
                             console.log('[wp2tg] fake subscription empty value for getKey:', name);
                             return null;
@@ -114,6 +114,7 @@
                         const bin = atob(b64);
                         return new Uint8Array(bin.split('').map(c => c.charCodeAt(0))).buffer;
                     }
+                    console.log('[wp2tg] fake subscription getKey:', name);
                     return null;
                 },
                 toJSON: function() {
