@@ -37,6 +37,7 @@ func (h *SubscriptionHandler) HandleApiSubscriptions(w http.ResponseWriter, r *h
 			URL                   string `json:"url"`
 			TelegramChatID        int64  `json:"telegram_chat_id"`
 			AutoCloseDelaySeconds *int   `json:"auto_close_delay_seconds"`
+			BrowserType           string `json:"browser_type"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&req)
 		host := strings.TrimPrefix(req.URL, "https://")
@@ -59,6 +60,7 @@ func (h *SubscriptionHandler) HandleApiSubscriptions(w http.ResponseWriter, r *h
 			defaultDelay := 5
 			details.AutoCloseDelaySeconds = &defaultDelay
 		}
+		details.BrowserType = req.BrowserType
 		h.Config.Subscriptions[host] = details
 		_ = h.SubManager.SaveConfigFunc()
 		h.ConfigMutex.Unlock()

@@ -13,6 +13,7 @@ type SubscriptionDetails struct {
 	ChannelID             string `yaml:"channel_id,omitempty" json:"-"`
 	TelegramChatID        int64  `yaml:"telegram_chat_id,omitempty" json:"telegram_chat_id,omitempty"`
 	AutoCloseDelaySeconds *int   `yaml:"auto_close_delay_seconds,omitempty" json:"auto_close_delay_seconds"`
+	BrowserType           string `yaml:"browser_type,omitempty" json:"browser_type,omitempty"`
 }
 
 type Config struct {

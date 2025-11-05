@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	ProfileName = "./chrome-profile-%s"
+	BrowserProfileName = "./browser-profile-%s"
 )
 
 type ContextHolder struct {
@@ -93,7 +93,7 @@ func (bl *PlaywrightBrowserLauncher) Cleanup(sm *usecase.SubscriptionManager, si
 					log.Printf("[Cleanup %s] Browser context closed", siteURL)
 				}
 			}
-			userDataDir := fmt.Sprintf(ProfileName, siteURL)
+			userDataDir := fmt.Sprintf(BrowserProfileName, siteURL)
 			if err := os.RemoveAll(userDataDir); err != nil {
 				log.Printf("[Cleanup %s] Failed to remove user data dir: %v", siteURL, err)
 			}
@@ -105,13 +105,14 @@ func (bl *PlaywrightBrowserLauncher) Cleanup(sm *usecase.SubscriptionManager, si
 	defer sm.ConfigMutex.Unlock()
 	if sub, ok := sm.Config.Subscriptions[siteURL]; ok {
 		sub.AutoCloseDelaySeconds = nil
+		sub.BrowserType = ""
 		sm.Config.Subscriptions[siteURL] = sub
 		_ = sm.SaveConfigFunc()
 	}
 }
 
 func (bl *PlaywrightBrowserLauncher) newBrowserContext(pw *playwright.Playwright, sm *usecase.SubscriptionManager, siteURL string) (playwright.BrowserContext, error) {
-	userDataDir, _ := filepath.Abs(fmt.Sprintf(ProfileName, siteURL))
+	userDataDir, _ := filepath.Abs(fmt.Sprintf(BrowserProfileName, siteURL))
 	_ = os.MkdirAll(userDataDir, 0755)
 
 	ua := sm.Config.Main.UserAgent
@@ -119,21 +120,51 @@ func (bl *PlaywrightBrowserLauncher) newBrowserContext(pw *playwright.Playwright
 		ua = domain.DefaultUserAgent
 	}
 
-	contextOptions := playwright.BrowserTypeLaunchPersistentContextOptions{
-		Headless:          playwright.Bool(false),
-		IgnoreHttpsErrors: playwright.Bool(true),
-		Args: []string{
-			"--disable-web-security",
-			"--disable-features=IsolateOrigins,site-per-process",
-			"--allow-running-insecure-content",
-			"--disable-blink-features=AutomationControlled",
-		},
-		UserAgent: playwright.String(ua),
-	}
+	sm.ConfigMutex.Lock()
+	sub, _ := sm.Config.Subscriptions[siteURL]
+	sm.ConfigMutex.Unlock()
 
-	browserContext, err := pw.Chromium.LaunchPersistentContext(userDataDir, contextOptions)
-	if err != nil {
-		return nil, fmt.Errorf("Playwright launch error: %w", err)
+	var browserContext playwright.BrowserContext
+
+	if sub.BrowserType == "firefox" {
+		contextOptions := playwright.BrowserTypeLaunchPersistentContextOptions{
+			Headless:          playwright.Bool(false),
+			IgnoreHttpsErrors: playwright.Bool(true),
+			UserAgent:         playwright.String(ua),
+			Args: []string{
+				"--disable-web-security",
+				"--allow-running-insecure-content",
+			},
+			FirefoxUserPrefs: map[string]interface{}{
+				"dom.push.connection.enabled": false,
+				//"dom.push.serverURL":          mitmProxyURL,
+				"browser.link.open_newwindow": 1,
+			},
+		}
+
+		var err error
+		browserContext, err = pw.Firefox.LaunchPersistentContext(userDataDir, contextOptions)
+		if err != nil {
+			return nil, fmt.Errorf("playwright launch error: %w", err)
+		}
+	} else {
+		contextOptions := playwright.BrowserTypeLaunchPersistentContextOptions{
+			Headless:          playwright.Bool(false),
+			IgnoreHttpsErrors: playwright.Bool(true),
+			Args: []string{
+				"--disable-web-security",
+				"--disable-features=IsolateOrigins,site-per-process",
+				"--allow-running-insecure-content",
+				"--disable-blink-features=AutomationControlled",
+			},
+			UserAgent: playwright.String(ua),
+		}
+
+		var err error
+		browserContext, err = pw.Chromium.LaunchPersistentContext(userDataDir, contextOptions)
+		if err != nil {
+			return nil, fmt.Errorf("playwright launch error: %w", err)
+		}
 	}
 
 	scriptContent := strings.ReplaceAll(initScript, "__SITE_HOST__", siteURL)

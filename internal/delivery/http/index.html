@@ -27,6 +27,11 @@
     <div class="add-form">
         domain:
         <input type="text" id="newSubscriptionUrl" placeholder="Enter website URL (e.g., example.com)">
+        Browser to use:
+        <select id="browserType">
+            <option value="chromium" selected>Chromium</option>
+            <option value="firefox">Firefox</option>
+        </select>
         Telegram chat ID:
         <input type="text" id="telegramChatId" placeholder="Telegram Chat ID (optional)" value="__TELEGRAM_CHAT_ID__">
         Auto-close browser delay in seconds after keys was hooked (0 to disable):
@@ -95,6 +100,7 @@
         const urlInput = document.getElementById('newSubscriptionUrl');
         const chatIdInput = document.getElementById('telegramChatId');
         const delayInput = document.getElementById('autoCloseDelay');
+        const browserType = document.getElementById('browserType');
         const errorMessage = document.getElementById('errorMessage');
         errorMessage.textContent = '';
 
@@ -113,6 +119,11 @@
         const delay = parseInt(delayInput.value.trim(), 10);
         if (!isNaN(delay)) {
             payload.auto_close_delay_seconds = delay;
+        }
+
+        const browserTypeValue = browserType.value;
+        if (browserTypeValue !== "") {
+            payload.browser_type = browserTypeValue;
         }
 
         try {
