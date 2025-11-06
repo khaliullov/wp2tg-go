@@ -2,7 +2,9 @@ package main
 
 import (
 	"flag"
+	"io"
 	"log"
+	"os"
 
 	"github.com/playwright-community/playwright-go"
 
@@ -16,7 +18,26 @@ import (
 func main() {
 	configPath := flag.String("config", "config.yaml", "Path to the configuration file")
 	skipPlaywrightInstall := flag.Bool("skip-playwright-install", false, "Skip Playwright installation")
+	logFilePath := flag.String("log", "", "Path to log file (default: stdout)")
 	flag.Parse()
+
+	var logOut io.Writer = os.Stdout
+	if logFilePath != nil && *logFilePath != "" {
+		file, err := os.OpenFile(*logFilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+		if err != nil {
+			log.Fatalf("Failed to open log file %q: %v", *logFilePath, err)
+		}
+		logOut = file
+		log.Printf("Logging to file: %s", *logFilePath)
+	}
+	defer func() {
+		if logOut != os.Stdout {
+			_ = logOut.(*os.File).Close()
+		}
+	}()
+
+	log.SetOutput(logOut)
+	log.SetFlags(log.LstdFlags)
 
 	cfg, cfgMutex, err := config.LoadConfig(*configPath)
 	if err != nil {
